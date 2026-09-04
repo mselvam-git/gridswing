@@ -40,6 +40,8 @@ def run(
     stcg_rate: float = 30.0,
     ltcg_rate: float = 12.5,
     fills: str = "intraday",
+    slippage: float = 0.1,
+    fill_buffer: float = 0.0005,
 ) -> SimulationResult:
     """Simulate the grid strategy day by day.
 
@@ -48,6 +50,10 @@ def run(
     today can also sell today. `fills="close"` is the legacy behavior: both trigger
     and fill happen at the day's close. Either way, only that day's own OHLC is used
     — no look-ahead.
+
+    `slippage` (% per side, default 0.1) worsens every fill price. `fill_buffer`
+    (fraction, default 0.0005 = 0.05%) requires a level/target to be cleared by more
+    than a bare touch before it counts as triggered.
     """
     if ohlc.empty:
         raise ValueError("No price data to simulate over.")
@@ -59,6 +65,7 @@ def run(
         first_close=first_close, step_pct=step, target_pct=target, capital=capital,
         max_deploy_pct=max_deploy, lot_size=lot_size, mode=mode,
         dynamic_weights=dynamic_weights, anchor_mode=anchor_mode, fills=fills,
+        slippage_pct=slippage, fill_buffer_pct=fill_buffer,
     )
     ledger = Ledger(symbol=symbol, stcg_rate=stcg_rate, ltcg_rate=ltcg_rate)
 

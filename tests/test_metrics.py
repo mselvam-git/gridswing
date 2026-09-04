@@ -10,7 +10,8 @@ def _ohlc(closes: list[float], start="2022-01-01") -> pd.DataFrame:
 
 def test_metrics_absolute_return_and_drawdown():
     df = _ohlc([100, 99, 100, 100])
-    res = engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, max_deploy=100, fills="close")
+    res = engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, max_deploy=100,
+                      fills="close", slippage=0, fill_buffer=0)
     m = metrics.compute_metrics(res)
     assert m["absolute_return_pct"] > 0
     assert m["num_round_trip_trades"] == 1
@@ -20,7 +21,7 @@ def test_metrics_absolute_return_and_drawdown():
 def test_post_tax_lower_than_gross_when_stcg():
     df = _ohlc([100, 99, 100, 100])
     res = engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, max_deploy=100, stcg_rate=30,
-                      fills="close")
+                      fills="close", slippage=0, fill_buffer=0)
     m = metrics.compute_metrics(res)
     assert m["post_tax_absolute_return_pct"] < m["absolute_return_pct"]
     assert m["total_tax"] > 0

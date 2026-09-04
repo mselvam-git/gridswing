@@ -62,6 +62,8 @@
       <label>Fills
         <select name="fills"><option value="intraday">intraday</option><option value="close">close</option></select>
       </label>
+      <label>Slippage % <input name="slippage" type="number" step="0.01" value="0.1"></label>
+      <label>Fill buffer <input name="fill_buffer" type="number" step="0.0001" value="0.0005"></label>
       <label>Brokerage % <input name="brokerage" type="number" step="0.01" value="0"></label>
       <label>STCG rate % <input name="stcg_rate" type="number" value="30"></label>
       <label>LTCG rate % <input name="ltcg_rate" type="number" step="0.1" value="12.5"></label>
@@ -127,6 +129,7 @@ form.addEventListener("submit", async (e) => {
     idle_yield: Number(fd.get("idle_yield")), anchor_mode: fd.get("anchor_mode"),
     brokerage: Number(fd.get("brokerage")), stcg_rate: Number(fd.get("stcg_rate")),
     ltcg_rate: Number(fd.get("ltcg_rate")), fills: fd.get("fills"),
+    slippage: Number(fd.get("slippage")), fill_buffer: Number(fd.get("fill_buffer")),
   };
 
   try {

@@ -62,6 +62,13 @@ class Grid:
 
     The anchor always ratchets up on any close above it — `anchor_mode` is accepted
     for backward-compatible call signatures but no longer gates that behavior.
+
+    `slippage_pct` worsens every fill price (paid more on buys, received less on
+    sells), applied regardless of fill mode. `fill_buffer_pct` is a fraction (e.g.
+    0.0005 = 0.05%) that tightens the trigger condition so a level must be cleared by
+    more than a bare touch: a buy needs low <= level*(1-buffer), a sell needs
+    high >= target*(1+buffer). It only gates whether a fill happens — the fill price
+    itself (level/target in intraday mode) is unaffected by the buffer.
     """
 
     def __init__(
@@ -76,6 +83,8 @@ class Grid:
         dynamic_weights: list[float] | None,
         anchor_mode: str,
         fills: str = "close",
+        slippage_pct: float = 0.0,
+        fill_buffer_pct: float = 0.0,
     ):
         if fills not in ("close", "intraday"):
             raise ValueError(f"fills must be 'close' or 'intraday', got {fills!r}")
@@ -89,6 +98,8 @@ class Grid:
         self.dynamic_weights = dynamic_weights
         self.anchor_mode = anchor_mode
         self.fills = fills
+        self.slippage_pct = slippage_pct
+        self.fill_buffer_pct = fill_buffer_pct
 
         self.anchor = first_close
         self.depths = compute_levels(self.anchor, step_pct, capital, max_deploy_pct, lot_size, mode, dynamic_weights)
@@ -121,18 +132,19 @@ class Grid:
         bought = []
         for k in self.depths:
             level_px = self.depth_price(k)
-            if trigger_price <= level_px and k not in self.open_lots:
+            if trigger_price <= level_px * (1 - self.fill_buffer_pct) and k not in self.open_lots:
                 lot_value = self.depth_weight(k) * self.lot_size
                 if self.deployed_capital + lot_value > self.capital * self.max_deploy_pct / 100:
                     continue
                 fill_price = level_px if self.fills == "intraday" else trigger_price
+                fill_price *= 1 + self.slippage_pct / 100  # pay slightly more on every buy
                 qty = lot_value / fill_price
                 lot = Lot(level=k, buy_date=date, buy_price=fill_price, qty=qty, lot_value=lot_value)
                 self.open_lots[k] = lot
                 self.deployed_capital += lot_value
                 bought.append(lot)
         # capital-exhaustion: price has fallen below the deepest grid level, no room left to buy deeper
-        if self.depths and trigger_price <= self.depth_price(self.depths[-1]):
+        if self.depths and trigger_price <= self.depth_price(self.depths[-1]) * (1 - self.fill_buffer_pct):
             depth_below_anchor_pct = (1 - trigger_price / self.anchor) * 100
             self.exhausted_events.append((date, depth_below_anchor_pct))
         return bought
@@ -148,8 +160,9 @@ class Grid:
         for k in list(self.open_lots.keys()):
             lot = self.open_lots[k]
             target_price = lot.buy_price * (1 + self.target_pct / 100)
-            if trigger_price >= target_price:
+            if trigger_price >= target_price * (1 + self.fill_buffer_pct):
                 fill_price = target_price if self.fills == "intraday" else trigger_price
+                fill_price *= 1 - self.slippage_pct / 100  # receive slightly less on every sell
                 sold.append((lot, fill_price))
                 del self.open_lots[k]
                 self.deployed_capital -= lot.lot_value
