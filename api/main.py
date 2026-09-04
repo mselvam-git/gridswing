@@ -19,7 +19,11 @@ from . import db
 
 app = FastAPI(title="GridSwing API")
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware,
+    # gridswing.pages.dev is the stable alias; *.gridswing.pages.dev covers each
+    # per-deploy preview URL (e.g. 54459db4.gridswing.pages.dev).
+    allow_origin_regex=r"https://([a-z0-9-]+\.)?gridswing\.pages\.dev",
+    allow_methods=["*"], allow_headers=["*"],
 )
 
 
