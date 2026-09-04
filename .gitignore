@@ -5,3 +5,4 @@ data/*.parquet
 output/
 .env
 .env.local
+.wrangler/
