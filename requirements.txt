@@ -1,0 +1,10 @@
+yfinance
+pandas
+numpy
+pyarrow
+click
+matplotlib
+pytest
+fastapi
+uvicorn[standard]
+psycopg2-binary
