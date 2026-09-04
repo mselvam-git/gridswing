@@ -17,6 +17,8 @@ def _common_options(f):
     f = click.option("--max-deploy", default=100.0, type=float, help="max %% of capital deployable")(f)
     f = click.option("--stcg-rate", default=30.0, type=float)(f)
     f = click.option("--ltcg-rate", default=12.5, type=float)(f)
+    f = click.option("--fills", default="intraday", type=click.Choice(["close", "intraday"]),
+                      help="close=legacy same-day close fills; intraday (default)=low/high-triggered limit fills")(f)
     return f
 
 
@@ -39,7 +41,7 @@ def cli():
 @click.option("--anchor", "anchor_mode", default="first_close", type=click.Choice(["first_close", "trailing"]))
 @click.option("--brokerage", default=0.0, type=float, help="%% per side")
 def run(symbol, start, end, capital, step, target, lot_size, mode, dynamic_weights, max_deploy,
-        idle_yield, anchor_mode, brokerage, stcg_rate, ltcg_rate):
+        idle_yield, anchor_mode, brokerage, stcg_rate, ltcg_rate, fills):
     """Run a single grid backtest and write output/<symbol>_<timestamp>/."""
     ohlc = _load(symbol, start, end)
     weights = [float(w) for w in dynamic_weights.split(",")] if dynamic_weights else None
@@ -47,7 +49,7 @@ def run(symbol, start, end, capital, step, target, lot_size, mode, dynamic_weigh
     result = engine.run(
         symbol, ohlc, capital=capital, step=step, target=target, lot_size=lot_size, mode=mode,
         dynamic_weights=weights, max_deploy=max_deploy, idle_yield=idle_yield, anchor_mode=anchor_mode,
-        brokerage=brokerage, stcg_rate=stcg_rate, ltcg_rate=ltcg_rate,
+        brokerage=brokerage, stcg_rate=stcg_rate, ltcg_rate=ltcg_rate, fills=fills,
     )
     m = metrics.compute_metrics(result)
     bh = metrics.benchmark_buy_hold(ohlc, capital, ltcg_rate)
@@ -60,10 +62,10 @@ def run(symbol, start, end, capital, step, target, lot_size, mode, dynamic_weigh
 
 @cli.command()
 @_common_options
-def sweep(symbol, start, end, capital, lot_size, max_deploy, stcg_rate, ltcg_rate):
+def sweep(symbol, start, end, capital, lot_size, max_deploy, stcg_rate, ltcg_rate, fills):
     """Parameter sweep over step x target -> CSV matrix."""
     ohlc = _load(symbol, start, end)
-    df = analysis.sweep(symbol, ohlc, capital, lot_size, max_deploy, stcg_rate=stcg_rate, ltcg_rate=ltcg_rate)
+    df = analysis.sweep(symbol, ohlc, capital, lot_size, max_deploy, stcg_rate=stcg_rate, ltcg_rate=ltcg_rate, fills=fills)
     run_dir = report.make_run_dir(symbol)
     df.to_csv(run_dir / "sweep.csv", index=False)
     print(df.to_string(index=False))
@@ -72,10 +74,10 @@ def sweep(symbol, start, end, capital, lot_size, max_deploy, stcg_rate, ltcg_rat
 
 @cli.command()
 @_common_options
-def walkforward(symbol, start, end, capital, lot_size, max_deploy, stcg_rate, ltcg_rate):
+def walkforward(symbol, start, end, capital, lot_size, max_deploy, stcg_rate, ltcg_rate, fills):
     """Optimize on in-sample data, validate on out-of-sample; flag overfitting."""
     ohlc = _load(symbol, start, end)
-    result = analysis.walk_forward(symbol, ohlc, capital, lot_size, max_deploy)
+    result = analysis.walk_forward(symbol, ohlc, capital, lot_size, max_deploy, fills=fills)
     print(f"Best params: step={result['best_step']} target={result['best_target']}")
     print(f"In-sample post-tax CAGR: {result['in_sample_cagr_pct']:.2f}%")
     if result["out_sample_cagr_pct"] is not None:
@@ -88,12 +90,12 @@ def walkforward(symbol, start, end, capital, lot_size, max_deploy, stcg_rate, lt
 @_common_options
 @click.option("--step", default=1.0, type=float)
 @click.option("--target", default=1.0, type=float)
-def blend(symbol, start, end, capital, lot_size, max_deploy, stcg_rate, ltcg_rate, step, target):
+def blend(symbol, start, end, capital, lot_size, max_deploy, stcg_rate, ltcg_rate, fills, step, target):
     """50/50 buy-and-hold + grid blend vs 100% each."""
     ohlc = _load(symbol, start, end)
     result = analysis.blend_5050(
         symbol, ohlc, capital, step=step, target=target, lot_size=lot_size,
-        max_deploy=max_deploy, stcg_rate=stcg_rate, ltcg_rate=ltcg_rate,
+        max_deploy=max_deploy, stcg_rate=stcg_rate, ltcg_rate=ltcg_rate, fills=fills,
     )
     print(f"Combined 50/50 post-tax absolute return: {result['combined_post_tax_absolute_return_pct']:.2f}%")
     print(f"Grid-only post-tax CAGR: {result['grid_only_post_tax_cagr_pct']:.2f}%")

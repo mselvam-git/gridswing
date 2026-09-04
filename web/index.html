@@ -59,6 +59,9 @@
       <label>Anchor
         <select name="anchor_mode"><option value="first_close">first_close</option><option value="trailing">trailing</option></select>
       </label>
+      <label>Fills
+        <select name="fills"><option value="intraday">intraday</option><option value="close">close</option></select>
+      </label>
       <label>Brokerage % <input name="brokerage" type="number" step="0.01" value="0"></label>
       <label>STCG rate % <input name="stcg_rate" type="number" value="30"></label>
       <label>LTCG rate % <input name="ltcg_rate" type="number" step="0.1" value="12.5"></label>
@@ -123,7 +126,7 @@ form.addEventListener("submit", async (e) => {
     lot_size: Number(fd.get("lot_size")), mode: fd.get("mode"), max_deploy: Number(fd.get("max_deploy")),
     idle_yield: Number(fd.get("idle_yield")), anchor_mode: fd.get("anchor_mode"),
     brokerage: Number(fd.get("brokerage")), stcg_rate: Number(fd.get("stcg_rate")),
-    ltcg_rate: Number(fd.get("ltcg_rate")),
+    ltcg_rate: Number(fd.get("ltcg_rate")), fills: fd.get("fills"),
   };
 
   try {

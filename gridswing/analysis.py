@@ -28,13 +28,13 @@ def suggest_spacing(ohlc: pd.DataFrame, current_step: float, trades_per_year_tar
 def sweep(
     symbol: str, ohlc: pd.DataFrame, capital: float, lot_size: float, max_deploy: float,
     steps=(0.5, 0.75, 1.0, 1.5, 2.0), targets=(1.0, 1.5, 2.0, 3.0),
-    stcg_rate: float = 30.0, ltcg_rate: float = 12.5,
+    stcg_rate: float = 30.0, ltcg_rate: float = 12.5, fills: str = "intraday",
 ) -> pd.DataFrame:
     rows = []
     for step, target in product(steps, targets):
         res = engine.run(
             symbol, ohlc, capital=capital, step=step, target=target, lot_size=lot_size,
-            max_deploy=max_deploy, stcg_rate=stcg_rate, ltcg_rate=ltcg_rate,
+            max_deploy=max_deploy, stcg_rate=stcg_rate, ltcg_rate=ltcg_rate, fills=fills,
         )
         m = metrics.compute_metrics(res)
         rows.append({
@@ -47,7 +47,7 @@ def sweep(
 def walk_forward(
     symbol: str, ohlc: pd.DataFrame, capital: float, lot_size: float, max_deploy: float,
     in_sample_end: str = "2024-12-31", out_sample_start: str = "2025-01-01",
-    steps=(0.5, 0.75, 1.0, 1.5, 2.0), targets=(1.0, 1.5, 2.0, 3.0),
+    steps=(0.5, 0.75, 1.0, 1.5, 2.0), targets=(1.0, 1.5, 2.0, 3.0), fills: str = "intraday",
 ) -> dict:
     in_sample = ohlc.loc[ohlc.index <= in_sample_end]
     out_sample = ohlc.loc[ohlc.index >= out_sample_start]
@@ -55,12 +55,14 @@ def walk_forward(
     best = max(
         product(steps, targets),
         key=lambda st: metrics.compute_metrics(
-            engine.run(symbol, in_sample, capital=capital, step=st[0], target=st[1], lot_size=lot_size, max_deploy=max_deploy)
+            engine.run(symbol, in_sample, capital=capital, step=st[0], target=st[1], lot_size=lot_size,
+                       max_deploy=max_deploy, fills=fills)
         )["post_tax_cagr_pct"],
     )
     step, target = best
     in_sample_cagr = metrics.compute_metrics(
-        engine.run(symbol, in_sample, capital=capital, step=step, target=target, lot_size=lot_size, max_deploy=max_deploy)
+        engine.run(symbol, in_sample, capital=capital, step=step, target=target, lot_size=lot_size,
+                   max_deploy=max_deploy, fills=fills)
     )["post_tax_cagr_pct"]
 
     if out_sample.empty:
@@ -68,7 +70,8 @@ def walk_forward(
                 "out_sample_cagr_pct": None, "overfitting_flag": None}
 
     out_sample_cagr = metrics.compute_metrics(
-        engine.run(symbol, out_sample, capital=capital, step=step, target=target, lot_size=lot_size, max_deploy=max_deploy)
+        engine.run(symbol, out_sample, capital=capital, step=step, target=target, lot_size=lot_size,
+                   max_deploy=max_deploy, fills=fills)
     )["post_tax_cagr_pct"]
 
     drop_pct = (in_sample_cagr - out_sample_cagr) / abs(in_sample_cagr) * 100 if in_sample_cagr else 0.0

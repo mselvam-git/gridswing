@@ -43,6 +43,7 @@ class RunRequest(BaseModel):
     brokerage: float = 0.0
     stcg_rate: float = 30.0
     ltcg_rate: float = 12.5
+    fills: str = "intraday"
 
 
 @app.post("/run")
@@ -55,6 +56,7 @@ def run_backtest(req: RunRequest):
             lot_size=req.lot_size, mode=req.mode, dynamic_weights=req.dynamic_weights,
             max_deploy=req.max_deploy, idle_yield=req.idle_yield, anchor_mode=req.anchor_mode,
             brokerage=req.brokerage, stcg_rate=req.stcg_rate, ltcg_rate=req.ltcg_rate,
+            fills=req.fills,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

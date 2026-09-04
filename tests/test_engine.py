@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from gridswing import engine
 
@@ -9,9 +10,10 @@ def _ohlc(closes: list[float], start="2022-01-01") -> pd.DataFrame:
 
 
 def test_simple_round_trip_no_lookahead():
-    # anchor=100, buy at 99 (day2), sell at 100 (day3, >=99*1.01=99.99)
+    # anchor=100, buy at 99 (day2), sell at 100 (day3, >=99*1.01=99.99). fills="close": legacy semantics.
     df = _ohlc([100, 99, 100, 100])
-    res = engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, mode="classic", max_deploy=100)
+    res = engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, mode="classic",
+                      max_deploy=100, fills="close")
     assert len(res.trades) == 1
     t = res.trades.iloc[0]
     assert t["buy_price"] == 99.0 and t["sell_price"] == 100.0
@@ -19,7 +21,8 @@ def test_simple_round_trip_no_lookahead():
 
 def test_idle_yield_accrues_on_uninvested_cash():
     df = _ohlc([100] * 366)  # no trades at all, flat price
-    res = engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, idle_yield=6.5, max_deploy=100)
+    res = engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, idle_yield=6.5,
+                      max_deploy=100, fills="close")
     final_cash = res.equity_curve["equity"].iloc[-1]
     expected = 100000 * (1 + 6.5 / 100 / 365) ** 366
     assert abs(final_cash - expected) < 1.0
@@ -30,7 +33,7 @@ def test_tax_classification_at_365_days():
     dates = pd.date_range("2022-01-01", periods=400, freq="D")
     closes = [100.0] + [99.0] * 365 + [100.0] + [100.0] * (400 - 367)
     df = pd.DataFrame({"Close": closes}, index=dates)
-    res = engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, max_deploy=100)
+    res = engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, max_deploy=100, fills="close")
     assert len(res.trades) == 1
     t = res.trades.iloc[0]
     holding_days = (t["sell_date"] - t["buy_date"]).days
@@ -40,6 +43,36 @@ def test_tax_classification_at_365_days():
 
 def test_max_deploy_cap_limits_buys_across_days():
     df = _ohlc([100, 99, 98, 97, 96, 95])
-    res = engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, max_deploy=20)
+    res = engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, max_deploy=20, fills="close")
     # only 2 levels fit in a 20% budget
     assert res.grid.deployed_capital <= 100000 * 0.20 + 1e-6
+
+
+def test_intraday_is_the_default():
+    # a Close-only frame has no High/Low, so the default fills="intraday" must reject it.
+    df = _ohlc([100, 99, 100, 100])
+    with pytest.raises(ValueError, match="High and Low"):
+        engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, max_deploy=100)
+
+
+def test_intraday_buy_fills_at_level_and_same_day_sell_on_high():
+    dates = pd.date_range("2022-01-01", periods=3, freq="D")
+    # day0: anchor=100 (O=H=L=C=100). day1: low dips to 99 (buy fills at level 99), high
+    # spikes to 101 same day -- target is 99*1.01=99.99, so the same lot can sell today.
+    df = pd.DataFrame(
+        {"Open": [100, 100, 100], "High": [100, 101, 100], "Low": [100, 99, 100], "Close": [100, 100, 100]},
+        index=dates,
+    )
+    res = engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, max_deploy=100,
+                      fills="intraday")
+    assert len(res.trades) == 1
+    t = res.trades.iloc[0]
+    assert t["buy_price"] == 99.0  # filled at the level price, not the low
+    assert t["sell_price"] == 99.0 * 1.01  # filled at the target price, not the high
+    assert t["buy_date"] == t["sell_date"]  # same-day round trip
+
+
+def test_intraday_requires_high_low_columns():
+    df = _ohlc([100, 99, 100])
+    with pytest.raises(ValueError, match="High and Low"):
+        engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, fills="intraday")

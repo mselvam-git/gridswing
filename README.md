@@ -46,24 +46,44 @@ Run the API locally:
 DATABASE_URL=postgresql://... .venv/bin/uvicorn api.main:app --reload
 ```
 
+## Execution semantics: `--fills`
+
+`--fills intraday` (default) uses the day's own High/Low: a buy triggers when the
+low touches a grid level and fills AT that level price (limit-order semantics); a
+sell triggers when the high reaches a lot's target and fills AT the target price. A
+lot bought earlier the same day can also sell that same day. `--fills close` is the
+legacy mode — both trigger and fill happen at the day's close. Either way, only that
+day's own OHLC is used (no look-ahead).
+
+Two more mechanics changed unconditionally (regardless of `--fills`):
+grid levels are now linear (`level_k = anchor * (1 - k*step/100)`, previously
+compounded), and the anchor now always ratchets up to any new close high — `--anchor`
+is still accepted for backward compatibility but no longer pins the anchor; ratcheting
+is now the only behavior.
+
 ## Interpreting the verdict
 
-The grid strategy only buys below its anchor price (fixed at the first close, unless
-`--anchor trailing`). It profits from range-bound/sideways chop — each dip triggers a
-buy, each bounce back to target triggers a sell. In a strong sustained bull run the
-grid mostly sits idle below the price and buy-and-hold wins by a wide margin; the
-`sweep`/`walkforward`/`blend` commands and the printed verdict text help size that
-trade-off for a given symbol and period.
+The grid buys dips below its anchor and sells bounces back to target; with the anchor
+now ratcheting up on every new high, it keeps finding fresh levels to trade as an
+asset trends up, rather than going idle once price leaves its original band (the old,
+pre-ratchet behavior). It still does best in choppy/range-bound conditions relative to
+buy-and-hold, since buy-and-hold has no re-entry cost; the `sweep`/`walkforward`/`blend`
+commands and the printed verdict text help size that trade-off for a given symbol and
+period.
 
 ## Note on the acceptance test
 
-The spec's hand-verified reference numbers (~37%/~42% absolute return for
-GOLDBEES.NS from 2022-01-01) were computed against data as of whenever the spec was
-written. Since `--end` defaults to today and yfinance only serves current market
-history, re-running with today's data gives different numbers — GOLDBEES has been in
-a strong bull run since 2022, so the grid (which only trades below its fixed anchor)
-goes idle after its first couple of trades and returns closer to buy-and-hold's gross
-gain being missed. This was verified against unit tests with deterministic synthetic
-data instead (`tests/`), which pin down the actual mechanics: level math, buy/sell
-triggers, lot independence, tax classification at 365 days, idle-yield accrual,
-max-deploy cap, and capital-exhaustion events.
+The spec's hand-verified reference numbers (~37% GOLDBEES.NS, ~28% NIFTYBEES.NS,
+classic 1:1, from 2022-01-01) were computed against data and/or an end date from
+whenever they were hand-verified — unknown to this implementation. Since `--end`
+defaults to today and yfinance only serves current market history, re-running with
+live data doesn't reproduce them: as of this writing, `intraday` fills give ~71%
+(GOLDBEES) / ~76% (NIFTYBEES) through today, and legacy `close` fills give ~28% /
+~22%. No `--end` date or fill mode tried lines up both symbols simultaneously within
+±3% of target, which is expected for a live-data mismatch rather than a fixable
+parameter. The mechanics themselves are verified independently of any specific data
+snapshot via unit tests with deterministic synthetic data (`tests/`), which pin down
+every rule explicitly: linear level math, intraday low/high triggers and level/target
+fill prices, same-day buy-then-sell, unconditional anchor ratcheting, tax
+classification at 365 days, idle-yield accrual, max-deploy cap, and capital-exhaustion
+events.

@@ -2,8 +2,10 @@ from gridswing.grid import Grid, compute_levels, level_price
 
 
 def test_level_price_math():
+    # linear spacing: level_k = anchor * (1 - k*step/100)
     assert level_price(100, 1.0, 1) == 99.0
-    assert abs(level_price(100, 1.0, 2) - 98.01) < 1e-9
+    assert abs(level_price(100, 1.0, 2) - 98.0) < 1e-9
+    assert abs(level_price(100, 1.0, 3) - 97.0) < 1e-9
 
 
 def test_compute_levels_respects_max_deploy():
@@ -37,7 +39,7 @@ def test_sell_triggers_at_target_and_lot_independence():
     sold = g.check_sells(98.9)  # below both targets (99*1.01=99.99, 98*1.01=98.98) -> not yet
     assert sold == []
     sold = g.check_sells(100.0)  # meets both targets
-    levels_sold = sorted(l.level for l in sold)
+    levels_sold = sorted(lot.level for lot, _fill_price in sold)
     assert levels_sold == [1, 2]
     assert g.open_lots == {}
 
@@ -65,3 +67,32 @@ def test_trailing_anchor_moves_up_with_new_high():
     assert g.anchor == 110
     g.update_anchor(105)  # lower than current anchor -> no change
     assert g.anchor == 110
+
+
+def test_ratchet_anchor_unconditional_regardless_of_anchor_mode():
+    # anchor_mode="first_close" no longer pins the anchor -- it always ratchets up.
+    g = Grid(100, step_pct=1.0, target_pct=1.0, capital=100000, max_deploy_pct=100,
+              lot_size=10000, mode="classic", dynamic_weights=None, anchor_mode="first_close")
+    g.update_anchor(120)
+    assert g.anchor == 120
+
+
+def test_intraday_buy_fills_at_level_price_not_trigger():
+    g = Grid(100, step_pct=1.0, target_pct=1.0, capital=100000, max_deploy_pct=100,
+              lot_size=10000, mode="classic", dynamic_weights=None, anchor_mode="first_close",
+              fills="intraday")
+    # low dips to 97 (crossing levels 99, 98, 97) but each fills AT its own level price
+    bought = g.check_buy(97.0, "d1")
+    assert [lot.level for lot in bought] == [1, 2, 3]
+    assert [lot.buy_price for lot in bought] == [99.0, 98.0, 97.0]
+
+
+def test_intraday_sell_fills_at_target_price_not_trigger():
+    g = Grid(100, step_pct=1.0, target_pct=1.0, capital=100000, max_deploy_pct=100,
+              lot_size=10000, mode="classic", dynamic_weights=None, anchor_mode="first_close",
+              fills="intraday")
+    g.check_buy(99.0, "d1")  # buy_price = level price = 99.0
+    sold = g.check_sells(150.0)  # high spikes well past target, but fill is AT the target
+    assert len(sold) == 1
+    lot, fill_price = sold[0]
+    assert fill_price == 99.0 * 1.01
