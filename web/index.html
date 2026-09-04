@@ -1,11 +1,11 @@
-&lt;!doctype html&gt;
-&lt;html lang="en"&gt;
-&lt;head&gt;
-&lt;meta charset="utf-8" /&gt;
-&lt;meta name="viewport" content="width=device-width, initial-scale=1" /&gt;
-&lt;title&gt;GridSwing&lt;/title&gt;
-&lt;script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"&gt;&lt;/script&gt;
-&lt;style&gt;
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GridSwing</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
   :root { color-scheme: light dark; --bg:#0b0f14; --panel:#121821; --border:#243040; --text:#e6edf3;
           --muted:#8b98a5; --accent:#4f9dff; --good:#3fb950; --bad:#f85149; }
   @media (prefers-color-scheme: light) {
@@ -34,64 +34,64 @@
   canvas { max-height:280px; }
   h3 { margin:0 0 10px; font-size:14px; }
   #error { color:var(--bad); font-size:13px; display:none; }
-&lt;/style&gt;
-&lt;/head&gt;
-&lt;body&gt;
-&lt;header&gt;
-  &lt;h1&gt;GridSwing&lt;/h1&gt;
-  &lt;p&gt;Grid / DCA ETF backtester — run a config, compare against buy-and-hold, gross vs post-tax.&lt;/p&gt;
-&lt;/header&gt;
-&lt;main&gt;
-  &lt;div class="panel"&gt;
-    &lt;form id="run-form"&gt;
-      &lt;label&gt;Symbol &lt;input name="symbol" value="GOLDBEES.NS" required&gt;&lt;/label&gt;
-      &lt;label&gt;Start &lt;input name="start" type="date" value="2022-01-01" required&gt;&lt;/label&gt;
-      &lt;label&gt;End (optional) &lt;input name="end" type="date"&gt;&lt;/label&gt;
-      &lt;label&gt;Capital (₹) &lt;input name="capital" type="number" value="100000" required&gt;&lt;/label&gt;
-      &lt;label&gt;Step % &lt;input name="step" type="number" step="0.1" value="1.0"&gt;&lt;/label&gt;
-      &lt;label&gt;Target % &lt;input name="target" type="number" step="0.1" value="1.0"&gt;&lt;/label&gt;
-      &lt;label&gt;Lot size (₹) &lt;input name="lot_size" type="number" value="10000"&gt;&lt;/label&gt;
-      &lt;label&gt;Mode
-        &lt;select name="mode"&gt;&lt;option value="classic"&gt;classic&lt;/option&gt;&lt;option value="dynamic"&gt;dynamic&lt;/option&gt;&lt;/select&gt;
-      &lt;/label&gt;
-      &lt;label&gt;Max deploy % &lt;input name="max_deploy" type="number" value="100"&gt;&lt;/label&gt;
-      &lt;label&gt;Idle yield % &lt;input name="idle_yield" type="number" step="0.1" value="0"&gt;&lt;/label&gt;
-      &lt;label&gt;Anchor
-        &lt;select name="anchor_mode"&gt;&lt;option value="first_close"&gt;first_close&lt;/option&gt;&lt;option value="trailing"&gt;trailing&lt;/option&gt;&lt;/select&gt;
-      &lt;/label&gt;
-      &lt;label&gt;Brokerage % &lt;input name="brokerage" type="number" step="0.01" value="0"&gt;&lt;/label&gt;
-      &lt;label&gt;STCG rate % &lt;input name="stcg_rate" type="number" value="30"&gt;&lt;/label&gt;
-      &lt;label&gt;LTCG rate % &lt;input name="ltcg_rate" type="number" step="0.1" value="12.5"&gt;&lt;/label&gt;
-      &lt;div class="actions"&gt;
-        &lt;button type="submit" id="submit-btn"&gt;Run backtest&lt;/button&gt;
-        &lt;span id="status"&gt;&lt;/span&gt;
-      &lt;/div&gt;
-    &lt;/form&gt;
-    &lt;p id="error"&gt;&lt;/p&gt;
-  &lt;/div&gt;
+</style>
+</head>
+<body>
+<header>
+  <h1>GridSwing</h1>
+  <p>Grid / DCA ETF backtester — run a config, compare against buy-and-hold, gross vs post-tax.</p>
+</header>
+<main>
+  <div class="panel">
+    <form id="run-form">
+      <label>Symbol <input name="symbol" value="GOLDBEES.NS" required></label>
+      <label>Start <input name="start" type="date" value="2022-01-01" required></label>
+      <label>End (optional) <input name="end" type="date"></label>
+      <label>Capital (₹) <input name="capital" type="number" value="100000" required></label>
+      <label>Step % <input name="step" type="number" step="0.1" value="1.0"></label>
+      <label>Target % <input name="target" type="number" step="0.1" value="1.0"></label>
+      <label>Lot size (₹) <input name="lot_size" type="number" value="10000"></label>
+      <label>Mode
+        <select name="mode"><option value="classic">classic</option><option value="dynamic">dynamic</option></select>
+      </label>
+      <label>Max deploy % <input name="max_deploy" type="number" value="100"></label>
+      <label>Idle yield % <input name="idle_yield" type="number" step="0.1" value="0"></label>
+      <label>Anchor
+        <select name="anchor_mode"><option value="first_close">first_close</option><option value="trailing">trailing</option></select>
+      </label>
+      <label>Brokerage % <input name="brokerage" type="number" step="0.01" value="0"></label>
+      <label>STCG rate % <input name="stcg_rate" type="number" value="30"></label>
+      <label>LTCG rate % <input name="ltcg_rate" type="number" step="0.1" value="12.5"></label>
+      <div class="actions">
+        <button type="submit" id="submit-btn">Run backtest</button>
+        <span id="status"></span>
+      </div>
+    </form>
+    <p id="error"></p>
+  </div>
 
-  &lt;div class="panel" id="results" hidden&gt;
-    &lt;h3&gt;Grid vs Buy &amp;amp; Hold&lt;/h3&gt;
-    &lt;table id="metrics-table"&gt;&lt;/table&gt;
-  &lt;/div&gt;
+  <div class="panel" id="results" hidden>
+    <h3>Grid vs Buy &amp; Hold</h3>
+    <table id="metrics-table"></table>
+  </div>
 
-  &lt;div class="panel" id="equity-panel" hidden&gt;
-    &lt;h3&gt;Equity Curve&lt;/h3&gt;
-    &lt;canvas id="equity-chart"&gt;&lt;/canvas&gt;
-  &lt;/div&gt;
+  <div class="panel" id="equity-panel" hidden>
+    <h3>Equity Curve</h3>
+    <canvas id="equity-chart"></canvas>
+  </div>
 
-  &lt;div class="panel" id="drawdown-panel" hidden&gt;
-    &lt;h3&gt;Drawdown %&lt;/h3&gt;
-    &lt;canvas id="drawdown-chart"&gt;&lt;/canvas&gt;
-  &lt;/div&gt;
+  <div class="panel" id="drawdown-panel" hidden>
+    <h3>Drawdown %</h3>
+    <canvas id="drawdown-chart"></canvas>
+  </div>
 
-  &lt;div class="panel" id="trades-panel" hidden&gt;
-    &lt;h3&gt;Trades&lt;/h3&gt;
-    &lt;table id="trades-table"&gt;&lt;/table&gt;
-  &lt;/div&gt;
-&lt;/main&gt;
+  <div class="panel" id="trades-panel" hidden>
+    <h3>Trades</h3>
+    <table id="trades-table"></table>
+  </div>
+</main>
 
-&lt;script&gt;
+<script>
 // Set at deploy time to the live Render API URL.
 const API_BASE = window.GRIDSWING_API_BASE || "https://gridswing-api.onrender.com";
 
@@ -153,11 +153,11 @@ form.addEventListener("submit", async (e) => {
 
 function renderMetrics(m, bh) {
   const table = document.getElementById("metrics-table");
-  table.innerHTML = "&lt;tr&gt;&lt;th&gt;Metric&lt;/th&gt;&lt;th&gt;Grid&lt;/th&gt;&lt;th&gt;Buy&amp;Hold&lt;/th&gt;&lt;/tr&gt;" +
-    METRIC_ROWS.map(([label, key]) => `&lt;tr&gt;&lt;td&gt;${label}&lt;/td&gt;&lt;td&gt;${fmt(m[key])}&lt;/td&gt;&lt;td&gt;${fmt(bh[key])}&lt;/td&gt;&lt;/tr&gt;`).join("") +
-    `&lt;tr&gt;&lt;td&gt;Trades&lt;/td&gt;&lt;td colspan="2"&gt;${m.num_round_trip_trades} (win rate ${fmt(m.win_rate_pct)}%)&lt;/td&gt;&lt;/tr&gt;` +
-    `&lt;tr&gt;&lt;td&gt;Max drawdown %&lt;/td&gt;&lt;td colspan="2"&gt;${fmt(m.max_drawdown_pct)}&lt;/td&gt;&lt;/tr&gt;` +
-    `&lt;tr&gt;&lt;td&gt;Total tax&lt;/td&gt;&lt;td colspan="2"&gt;₹${fmt(m.total_tax)} (STCG ₹${fmt(m.stcg_tax)} / LTCG ₹${fmt(m.ltcg_tax)})&lt;/td&gt;&lt;/tr&gt;`;
+  table.innerHTML = "<tr><th>Metric</th><th>Grid</th><th>Buy&Hold</th></tr>" +
+    METRIC_ROWS.map(([label, key]) => `<tr><td>${label}</td><td>${fmt(m[key])}</td><td>${fmt(bh[key])}</td></tr>`).join("") +
+    `<tr><td>Trades</td><td colspan="2">${m.num_round_trip_trades} (win rate ${fmt(m.win_rate_pct)}%)</td></tr>` +
+    `<tr><td>Max drawdown %</td><td colspan="2">${fmt(m.max_drawdown_pct)}</td></tr>` +
+    `<tr><td>Total tax</td><td colspan="2">₹${fmt(m.total_tax)} (STCG ₹${fmt(m.stcg_tax)} / LTCG ₹${fmt(m.ltcg_tax)})</td></tr>`;
   document.getElementById("results").hidden = false;
 }
 
@@ -165,10 +165,10 @@ function renderTrades(trades) {
   const table = document.getElementById("trades-table");
   const panel = document.getElementById("trades-panel");
   if (!trades.length) { panel.hidden = true; return; }
-  table.innerHTML = "&lt;tr&gt;&lt;th&gt;Buy&lt;/th&gt;&lt;th&gt;Sell&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Buy px&lt;/th&gt;&lt;th&gt;Sell px&lt;/th&gt;&lt;th&gt;PnL&lt;/th&gt;&lt;th&gt;Class&lt;/th&gt;&lt;/tr&gt;" +
-    trades.map(t => `&lt;tr&gt;&lt;td&gt;${t.buy_date}&lt;/td&gt;&lt;td&gt;${t.sell_date}&lt;/td&gt;&lt;td&gt;${fmt(+t.qty)}&lt;/td&gt;` +
-      `&lt;td&gt;${fmt(+t.buy_price)}&lt;/td&gt;&lt;td&gt;${fmt(+t.sell_price)}&lt;/td&gt;` +
-      `&lt;td class="${+t.gross_pnl &gt;= 0 ? 'pos' : 'neg'}"&gt;${fmt(+t.gross_pnl)}&lt;/td&gt;&lt;td&gt;${t.tax_class}&lt;/td&gt;&lt;/tr&gt;`).join("");
+  table.innerHTML = "<tr><th>Buy</th><th>Sell</th><th>Qty</th><th>Buy px</th><th>Sell px</th><th>PnL</th><th>Class</th></tr>" +
+    trades.map(t => `<tr><td>${t.buy_date}</td><td>${t.sell_date}</td><td>${fmt(+t.qty)}</td>` +
+      `<td>${fmt(+t.buy_price)}</td><td>${fmt(+t.sell_price)}</td>` +
+      `<td class="${+t.gross_pnl >= 0 ? 'pos' : 'neg'}">${fmt(+t.gross_pnl)}</td><td>${t.tax_class}</td></tr>`).join("");
   panel.hidden = false;
 }
 
@@ -194,6 +194,6 @@ function renderCharts(equityCurve) {
     options: { plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
   });
 }
-&lt;/script&gt;
-&lt;/body&gt;
-&lt;/html&gt;
+</script>
+</body>
+</html>
