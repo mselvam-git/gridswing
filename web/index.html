@@ -175,6 +175,7 @@ const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("error");
 const submitBtn = document.getElementById("submit-btn");
 let equityChart, drawdownChart, monthlyChart;
+let lastSymbol = "";         // symbol of the last run, used to prefix downloaded filenames
 let lastTrades = [];         // full, unfiltered trades from the last run
 let currentTrades = [];      // whatever's currently rendered in the trades table (post-filter)
 let currentMonthlyRows = []; // whatever's currently rendered in the monthly pivot (post-filter)
@@ -226,6 +227,7 @@ form.addEventListener("submit", async (e) => {
     renderMetrics(metrics, benchmark);
     document.getElementById("verdict").textContent = verdict || "";
 
+    lastSymbol = body.symbol;
     lastTrades = detail.trades;
     document.getElementById("filter-from").value = "";
     document.getElementById("filter-to").value = "";
@@ -531,9 +533,10 @@ function exportRows(rows, headers, filenameBase, format) {
 
 document.querySelectorAll(".dl-btn").forEach(btn => btn.addEventListener("click", () => {
   const { target, format } = btn.dataset;
-  if (target === "trades") exportRows(currentTrades, TRADES_HEADERS, "trades", format);
-  else if (target === "monthly") exportRows(currentMonthlyRows, MONTHLY_HEADERS, "monthly-activity", format);
-  else exportRows(currentLedgerRows, DAILY_LEDGER_HEADERS, "daily-ledger", format);
+  const prefix = lastSymbol ? `${lastSymbol.replace(/[^A-Za-z0-9.-]/g, "_")}_` : "";
+  if (target === "trades") exportRows(currentTrades, TRADES_HEADERS, `${prefix}trades`, format);
+  else if (target === "monthly") exportRows(currentMonthlyRows, MONTHLY_HEADERS, `${prefix}monthly-activity`, format);
+  else exportRows(currentLedgerRows, DAILY_LEDGER_HEADERS, `${prefix}daily-ledger`, format);
 }));
 </script>
 </body>
