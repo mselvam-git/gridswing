@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from gridswing import engine, metrics as metrics_mod
+from gridswing import analysis, engine, metrics as metrics_mod
 from gridswing.data import get_ohlc
 
 from . import db
@@ -48,6 +48,23 @@ class RunRequest(BaseModel):
     fill_buffer: float = 0.0005
 
 
+class WalkForwardRequest(RunRequest):
+    in_sample_end: str | None = None
+    out_sample_start: str | None = None
+
+
+def _json_safe(obj):
+    """Recursively coerce numpy scalars (int64/float64/bool_) to native Python types
+    so plain dict/list responses don't trip FastAPI's JSON encoding."""
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if hasattr(obj, "item"):
+        return obj.item()
+    return obj
+
+
 @app.post("/run")
 def run_backtest(req: RunRequest):
     end = req.end or date.today().isoformat()
@@ -65,6 +82,8 @@ def run_backtest(req: RunRequest):
 
     m = metrics_mod.compute_metrics(result)
     bh = metrics_mod.benchmark_buy_hold(ohlc, req.capital, req.ltcg_rate)
+    spacing = analysis.suggest_spacing(ohlc, req.step)
+    verdict = analysis.verdict(m, bh, spacing)
 
     with db.get_conn() as conn:
         run_id = db.insert_run(conn, {
@@ -90,7 +109,58 @@ def run_backtest(req: RunRequest):
         ]
         db.insert_equity_curve(conn, run_id, equity_rows)
 
-    return {"run_id": run_id, "metrics": m, "benchmark": bh}
+    return {"run_id": run_id, "metrics": m, "benchmark": bh, "verdict": verdict}
+
+
+@app.post("/sweep")
+def run_sweep(req: RunRequest):
+    end = req.end or date.today().isoformat()
+    try:
+        ohlc = get_ohlc(req.symbol, req.start, end)
+        df = analysis.sweep(
+            req.symbol, ohlc, req.capital, req.lot_size, req.max_deploy,
+            stcg_rate=req.stcg_rate, ltcg_rate=req.ltcg_rate, fills=req.fills,
+            slippage=req.slippage, fill_buffer=req.fill_buffer,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"rows": _json_safe(df.to_dict(orient="records"))}
+
+
+@app.post("/walkforward")
+def run_walkforward(req: WalkForwardRequest):
+    end = req.end or date.today().isoformat()
+    kwargs = {}
+    if req.in_sample_end:
+        kwargs["in_sample_end"] = req.in_sample_end
+    if req.out_sample_start:
+        kwargs["out_sample_start"] = req.out_sample_start
+    try:
+        ohlc = get_ohlc(req.symbol, req.start, end)
+        result = analysis.walk_forward(
+            req.symbol, ohlc, req.capital, req.lot_size, req.max_deploy,
+            fills=req.fills, slippage=req.slippage, fill_buffer=req.fill_buffer, **kwargs,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _json_safe(result)
+
+
+@app.post("/blend")
+def run_blend(req: RunRequest):
+    end = req.end or date.today().isoformat()
+    try:
+        ohlc = get_ohlc(req.symbol, req.start, end)
+        result = analysis.blend_5050(
+            req.symbol, ohlc, req.capital, step=req.step, target=req.target, lot_size=req.lot_size,
+            max_deploy=req.max_deploy, stcg_rate=req.stcg_rate, ltcg_rate=req.ltcg_rate, fills=req.fills,
+            slippage=req.slippage, fill_buffer=req.fill_buffer,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    curve = result.pop("combined_equity_curve")
+    equity_curve = [{"date": idx.date().isoformat(), "equity": float(v)} for idx, v in curve.items()]
+    return {**_json_safe(result), "combined_equity_curve": equity_curve}
 
 
 @app.get("/runs/{run_id}")

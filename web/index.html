@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>GridSwing</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root { color-scheme: light dark; --bg:#0b0f14; --panel:#121821; --border:#243040; --text:#e6edf3;
           --muted:#8b98a5; --accent:#4f9dff; --good:#3fb950; --bad:#f85149; }
@@ -34,6 +35,15 @@
   canvas { max-height:280px; }
   h3 { margin:0 0 10px; font-size:14px; }
   #error { color:var(--bad); font-size:13px; display:none; }
+  .panel-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .panel-header h3 { margin:0; }
+  .btn-row { display:flex; gap:8px; flex-wrap:wrap; }
+  .btn-sm { padding:5px 10px; font-size:12px; font-weight:500; }
+  .btn-secondary { background:var(--border); color:var(--text); }
+  .analysis-result { margin-top:12px; font-size:13px; white-space:pre-wrap; }
+  .analysis-result table { margin-top:0; }
+  #verdict { white-space:pre-wrap; margin-top:12px; color:var(--text); font-size:13px; }
+  .filter-row { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
 </style>
 </head>
 <body>
@@ -75,9 +85,22 @@
     <p id="error"></p>
   </div>
 
+  <div class="panel">
+    <h3>Analysis</h3>
+    <div class="actions">
+      <button type="button" id="sweep-btn">Run parameter sweep</button>
+      <button type="button" id="walkforward-btn">Run walk-forward</button>
+      <button type="button" id="blend-btn">Run 50/50 blend</button>
+    </div>
+    <div id="sweep-result" class="analysis-result"></div>
+    <div id="walkforward-result" class="analysis-result"></div>
+    <div id="blend-result" class="analysis-result"></div>
+  </div>
+
   <div class="panel" id="results" hidden>
     <h3>Grid vs Buy &amp; Hold</h3>
     <table id="metrics-table"></table>
+    <p id="verdict"></p>
   </div>
 
   <div class="panel" id="equity-panel" hidden>
@@ -90,13 +113,35 @@
     <canvas id="drawdown-chart"></canvas>
   </div>
 
+  <div class="panel" id="filter-panel" hidden>
+    <h3>Filter by buy date</h3>
+    <div class="filter-row">
+      <label>From <input type="date" id="filter-from"></label>
+      <label>To <input type="date" id="filter-to"></label>
+      <button type="button" id="filter-apply" class="btn-sm">Apply</button>
+      <button type="button" id="filter-reset" class="btn-sm btn-secondary">Reset</button>
+    </div>
+  </div>
+
   <div class="panel" id="trades-panel" hidden>
-    <h3>Trades</h3>
+    <div class="panel-header">
+      <h3>Trades</h3>
+      <div class="btn-row">
+        <button type="button" class="btn-sm dl-btn" data-target="trades" data-format="csv">Download CSV</button>
+        <button type="button" class="btn-sm dl-btn" data-target="trades" data-format="xlsx">Download XLSX</button>
+      </div>
+    </div>
     <table id="trades-table"></table>
   </div>
 
   <div class="panel" id="monthly-panel" hidden>
-    <h3>Monthly Activity</h3>
+    <div class="panel-header">
+      <h3>Monthly Activity</h3>
+      <div class="btn-row">
+        <button type="button" class="btn-sm dl-btn" data-target="monthly" data-format="csv">Download CSV</button>
+        <button type="button" class="btn-sm dl-btn" data-target="monthly" data-format="xlsx">Download XLSX</button>
+      </div>
+    </div>
     <table id="monthly-table"></table>
     <canvas id="monthly-chart"></canvas>
   </div>
@@ -111,6 +156,9 @@ const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("error");
 const submitBtn = document.getElementById("submit-btn");
 let equityChart, drawdownChart, monthlyChart;
+let lastTrades = [];       // full, unfiltered trades from the last run
+let currentTrades = [];    // whatever's currently rendered in the trades table (post-filter)
+let currentMonthlyRows = []; // whatever's currently rendered in the monthly pivot (post-filter)
 
 const METRIC_ROWS = [
   ["Absolute return %", "absolute_return_pct"],
@@ -121,14 +169,9 @@ const METRIC_ROWS = [
 
 function fmt(n) { return typeof n === "number" ? n.toFixed(2) : "—"; }
 
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  errorEl.style.display = "none";
-  submitBtn.disabled = true;
-  statusEl.textContent = "Running backtest…";
-
+function currentBody() {
   const fd = new FormData(form);
-  const body = {
+  return {
     symbol: fd.get("symbol"), start: fd.get("start"), end: fd.get("end") || null,
     capital: Number(fd.get("capital")), step: Number(fd.get("step")), target: Number(fd.get("target")),
     lot_size: Number(fd.get("lot_size")), mode: fd.get("mode"), max_deploy: Number(fd.get("max_deploy")),
@@ -137,13 +180,22 @@ form.addEventListener("submit", async (e) => {
     ltcg_rate: Number(fd.get("ltcg_rate")), fills: fd.get("fills"),
     slippage: Number(fd.get("slippage")), fill_buffer: Number(fd.get("fill_buffer")),
   };
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  errorEl.style.display = "none";
+  submitBtn.disabled = true;
+  statusEl.textContent = "Running backtest…";
+
+  const body = currentBody();
 
   try {
     const runResp = await fetch(`${API_BASE}/run`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
     if (!runResp.ok) throw new Error((await runResp.json()).detail || `HTTP ${runResp.status}`);
-    const { run_id, metrics, benchmark } = await runResp.json();
+    const { run_id, metrics, benchmark, verdict } = await runResp.json();
 
     statusEl.textContent = "Loading results…";
     const detailResp = await fetch(`${API_BASE}/runs/${run_id}`);
@@ -151,8 +203,14 @@ form.addEventListener("submit", async (e) => {
     const detail = await detailResp.json();
 
     renderMetrics(metrics, benchmark);
-    renderTrades(detail.trades);
-    renderMonthly(detail.trades);
+    document.getElementById("verdict").textContent = verdict || "";
+
+    lastTrades = detail.trades;
+    document.getElementById("filter-from").value = "";
+    document.getElementById("filter-to").value = "";
+    document.getElementById("filter-panel").hidden = lastTrades.length === 0;
+    renderTrades(lastTrades);
+    renderMonthly(lastTrades);
     renderCharts(detail.equity_curve);
     statusEl.textContent = `Run ${run_id.slice(0, 8)} complete.`;
   } catch (err) {
@@ -162,6 +220,21 @@ form.addEventListener("submit", async (e) => {
   } finally {
     submitBtn.disabled = false;
   }
+});
+
+document.getElementById("filter-apply").addEventListener("click", () => {
+  const from = document.getElementById("filter-from").value;
+  const to = document.getElementById("filter-to").value;
+  const filtered = lastTrades.filter(t => (!from || t.buy_date >= from) && (!to || t.buy_date <= to));
+  renderTrades(filtered);
+  renderMonthly(filtered);
+});
+
+document.getElementById("filter-reset").addEventListener("click", () => {
+  document.getElementById("filter-from").value = "";
+  document.getElementById("filter-to").value = "";
+  renderTrades(lastTrades);
+  renderMonthly(lastTrades);
 });
 
 function renderMetrics(m, bh) {
@@ -177,6 +250,7 @@ function renderMetrics(m, bh) {
 function renderTrades(trades) {
   const table = document.getElementById("trades-table");
   const panel = document.getElementById("trades-panel");
+  currentTrades = trades;
   if (!trades.length) { panel.hidden = true; return; }
   table.innerHTML = "<tr><th>Buy</th><th>Sell</th><th>Qty</th><th>Buy px</th><th>Sell px</th><th>PnL</th><th>Class</th></tr>" +
     trades.map(t => `<tr><td>${t.buy_date}</td><td>${t.sell_date}</td><td>${fmt(+t.qty)}</td>` +
@@ -187,7 +261,7 @@ function renderTrades(trades) {
 
 function renderMonthly(trades) {
   const panel = document.getElementById("monthly-panel");
-  if (!trades.length) { panel.hidden = true; return; }
+  if (!trades.length) { panel.hidden = true; currentMonthlyRows = []; return; }
 
   // Group by calendar month of buy_date. Idle days = gap between the previous
   // trade's sell_date and this trade's buy_date, walked in buy_date order.
@@ -214,13 +288,16 @@ function renderMonthly(trades) {
   }
 
   const monthKeys = Object.keys(months).sort();
+  currentMonthlyRows = monthKeys.map(m => {
+    const r = months[m];
+    return { month: m, buys: r.buys, sells: r.sells,
+             avgIdle: r.idleCount ? r.idleSum / r.idleCount : 0, totalIdle: r.idleSum };
+  });
   const table = document.getElementById("monthly-table");
   table.innerHTML = "<tr><th>Month</th><th>Buys</th><th>Sells</th><th>Avg idle days</th><th>Total idle days</th></tr>" +
-    monthKeys.map(m => {
-      const r = months[m];
-      const avgIdle = r.idleCount ? r.idleSum / r.idleCount : 0;
-      return `<tr><td>${m}</td><td>${r.buys}</td><td>${r.sells}</td><td>${fmt(avgIdle)}</td><td>${fmt(r.idleSum)}</td></tr>`;
-    }).join("");
+    currentMonthlyRows.map(r =>
+      `<tr><td>${r.month}</td><td>${r.buys}</td><td>${r.sells}</td><td>${fmt(r.avgIdle)}</td><td>${fmt(r.totalIdle)}</td></tr>`
+    ).join("");
 
   panel.hidden = false;
   monthlyChart?.destroy();
@@ -256,6 +333,104 @@ function renderCharts(equityCurve) {
     options: { plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
   });
 }
+
+// ---- Analysis panel: sweep / walk-forward / blend ----
+
+async function runAnalysis(kind) {
+  const btn = document.getElementById(`${kind}-btn`);
+  const resultEl = document.getElementById(`${kind}-result`);
+  btn.disabled = true;
+  resultEl.textContent = "Running…";
+  try {
+    const resp = await fetch(`${API_BASE}/${kind}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(currentBody()),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).detail || `HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (kind === "sweep") renderSweepResult(data.rows, resultEl);
+    else if (kind === "walkforward") renderWalkforwardResult(data, resultEl);
+    else renderBlendResult(data, resultEl);
+  } catch (err) {
+    resultEl.textContent = err.message || String(err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderSweepResult(rows, el) {
+  const sorted = [...rows].sort((a, b) => b.post_tax_cagr_pct - a.post_tax_cagr_pct);
+  el.innerHTML = "<table><tr><th>Step %</th><th>Target %</th><th>Post-tax CAGR %</th><th>Max DD %</th></tr>" +
+    sorted.map(r => `<tr><td>${fmt(r.step)}</td><td>${fmt(r.target)}</td>` +
+      `<td>${fmt(r.post_tax_cagr_pct)}</td><td>${fmt(r.max_drawdown_pct)}</td></tr>`).join("") +
+    "</table>";
+}
+
+function renderWalkforwardResult(d, el) {
+  const lines = [
+    `Best params: step=${fmt(d.best_step)}% target=${fmt(d.best_target)}%`,
+    `In-sample post-tax CAGR: ${fmt(d.in_sample_cagr_pct)}%`,
+  ];
+  if (d.out_sample_cagr_pct != null) lines.push(`Out-of-sample post-tax CAGR: ${fmt(d.out_sample_cagr_pct)}%`);
+  if (d.overfitting_flag) lines.push("WARNING: out-of-sample CAGR dropped >30% vs in-sample — possible overfitting.");
+  el.textContent = lines.join("\n");
+}
+
+function renderBlendResult(d, el) {
+  el.textContent =
+    `Combined 50/50 post-tax absolute return: ${fmt(d.combined_post_tax_absolute_return_pct)}%\n` +
+    `Grid-only post-tax CAGR: ${fmt(d.grid_only_post_tax_cagr_pct)}%\n` +
+    `Buy&hold-only post-tax CAGR: ${fmt(d.buy_hold_only_post_tax_cagr_pct)}%`;
+}
+
+document.getElementById("sweep-btn").addEventListener("click", () => runAnalysis("sweep"));
+document.getElementById("walkforward-btn").addEventListener("click", () => runAnalysis("walkforward"));
+document.getElementById("blend-btn").addEventListener("click", () => runAnalysis("blend"));
+
+// ---- CSV / XLSX export (trades + monthly activity, whatever's currently displayed) ----
+
+const TRADES_HEADERS = [
+  ["buy_date", "Buy"], ["sell_date", "Sell"], ["qty", "Qty"], ["buy_price", "Buy px"],
+  ["sell_price", "Sell px"], ["gross_pnl", "PnL"], ["tax_class", "Class"],
+];
+const MONTHLY_HEADERS = [
+  ["month", "Month"], ["buys", "Buys"], ["sells", "Sells"], ["avgIdle", "Avg idle days"], ["totalIdle", "Total idle days"],
+];
+
+function csvCell(v) {
+  const s = v === undefined || v === null ? "" : String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportRows(rows, headers, filenameBase, format) {
+  if (!rows.length) return;
+  if (format === "csv") {
+    const csv = [
+      headers.map(([, label]) => csvCell(label)).join(","),
+      ...rows.map(r => headers.map(([key]) => csvCell(r[key])).join(",")),
+    ].join("\n");
+    downloadBlob(new Blob([csv], { type: "text/csv" }), `${filenameBase}.csv`);
+  } else {
+    const sheetRows = rows.map(r => Object.fromEntries(headers.map(([key, label]) => [label, r[key]])));
+    const ws = XLSX.utils.json_to_sheet(sheetRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+    XLSX.writeFile(wb, `${filenameBase}.xlsx`);
+  }
+}
+
+document.querySelectorAll(".dl-btn").forEach(btn => btn.addEventListener("click", () => {
+  const { target, format } = btn.dataset;
+  if (target === "trades") exportRows(currentTrades, TRADES_HEADERS, "trades", format);
+  else exportRows(currentMonthlyRows, MONTHLY_HEADERS, "monthly-activity", format);
+}));
 </script>
 </body>
 </html>
