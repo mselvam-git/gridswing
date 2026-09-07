@@ -97,6 +97,11 @@
     <div id="blend-result" class="analysis-result"></div>
   </div>
 
+  <div class="panel" id="summary-panel" hidden>
+    <h3>Portfolio Summary</h3>
+    <table id="summary-table"></table>
+  </div>
+
   <div class="panel" id="results" hidden>
     <h3>Grid vs Buy &amp; Hold</h3>
     <table id="metrics-table"></table>
@@ -231,6 +236,7 @@ form.addEventListener("submit", async (e) => {
 
     lastDailyLedger = daily_ledger || [];
     renderLedger(lastDailyLedger);
+    renderSummary(lastDailyLedger[lastDailyLedger.length - 1], body.capital);
 
     statusEl.textContent = `Run ${run_id.slice(0, 8)} complete.`;
   } catch (err) {
@@ -375,6 +381,28 @@ function ledgerCell(key, val) {
   if (key === "new_ath") return val ? "Yes" : "No";
   if (val === null || val === undefined) return "—";
   return fmt(+val);
+}
+
+function renderSummary(last, capital) {
+  const panel = document.getElementById("summary-panel");
+  if (!last) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const rows = [
+    ["Starting capital", `₹${fmt(capital)}`],
+    ["Latest ATH", `₹${fmt(last.anchor_after)}`],
+    ["Latest price", `₹${fmt(last.market_price)}`],
+    ["ATH drawdown", `${fmt(last.drawdown_pct)}%`],
+    ["Cash principal", `₹${fmt(last.cash)}`],
+    ["Open principal", `₹${fmt(last.open_principal)}`],
+    ["Holding units", fmt(last.holding_units)],
+    ["Holding value", `₹${fmt(last.holding_value)}`],
+    ["Unrealized P&L", `₹${fmt(last.unrealized_pnl)}`],
+    ["Realized P&L", `₹${fmt(last.realized_pnl_cum)}`],
+    ["Portfolio value", `₹${fmt(last.portfolio_value)}`],
+    ["Current P&L", `₹${fmt(last.overall_pnl)}`],
+  ];
+  document.getElementById("summary-table").innerHTML =
+    rows.map(([label, value]) => `<tr><td>${label}</td><td>${value}</td></tr>`).join("");
 }
 
 function renderLedger(rows) {
