@@ -105,3 +105,34 @@ def test_fill_buffer_blocks_a_bare_touch():
                       fills="intraday", slippage=0, fill_buffer=0.0005)
     assert len(res.grid.open_lots) == 0
     assert len(res.trades) == 0
+
+
+def test_daily_ledger_invariants():
+    dates = pd.date_range("2022-01-01", periods=3, freq="D")
+    # day1: low dips to 99 (buy fills at level 99), high spikes to 101 same day so
+    # the lot's 1% target (99.99) is also hit -- a same-day BUY_SELL round trip.
+    df = pd.DataFrame(
+        {"Open": [100, 100, 100], "High": [100, 101, 100], "Low": [100, 99, 100], "Close": [100, 100, 100]},
+        index=dates,
+    )
+    res = engine.run("TEST", df, capital=100000, step=1.0, target=1.0, lot_size=10000, max_deploy=100,
+                      fills="intraday", slippage=0, fill_buffer=0)
+
+    # one row per input OHLC row
+    assert len(res.daily_ledger) == len(df)
+
+    # the known round trip on day 1 shows up with correct legs/action/pnl
+    row1 = res.daily_ledger.loc[dates[1]]
+    assert row1["action"] == "BUY_SELL"
+    assert row1["buy_legs"] == 1 and row1["sell_legs"] == 1
+    trade = res.trades.iloc[0]
+    assert abs(row1["realized_pnl_day"] - trade["gross_pnl"]) < 1e-9
+
+    # portfolio_value matches cash + holding_value on the last row
+    last = res.daily_ledger.iloc[-1]
+    assert abs(last["portfolio_value"] - (last["cash"] + last["holding_value"])) < 1e-9
+
+    # realized_pnl_cum is a running total, not necessarily non-decreasing (a sell
+    # can realize a loss under extreme slippage), so check the safe invariant instead:
+    # the last cumulative value equals the sum of all daily realized pnl.
+    assert abs(res.daily_ledger["realized_pnl_cum"].iloc[-1] - res.daily_ledger["realized_pnl_day"].sum()) < 1e-9

@@ -145,6 +145,20 @@
     <table id="monthly-table"></table>
     <canvas id="monthly-chart"></canvas>
   </div>
+
+  <div class="panel" id="ledger-panel" hidden>
+    <div class="panel-header">
+      <h3>Daily Activity Ledger</h3>
+      <div class="btn-row">
+        <button type="button" id="ledger-toggle" class="btn-sm btn-secondary">Show daily ledger</button>
+        <button type="button" class="btn-sm dl-btn" data-target="ledger" data-format="csv">Download CSV</button>
+        <button type="button" class="btn-sm dl-btn" data-target="ledger" data-format="xlsx">Download XLSX</button>
+      </div>
+    </div>
+    <div id="ledger-table-wrap" hidden>
+      <table id="ledger-table"></table>
+    </div>
+  </div>
 </main>
 
 <script>
@@ -156,9 +170,11 @@ const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("error");
 const submitBtn = document.getElementById("submit-btn");
 let equityChart, drawdownChart, monthlyChart;
-let lastTrades = [];       // full, unfiltered trades from the last run
-let currentTrades = [];    // whatever's currently rendered in the trades table (post-filter)
+let lastTrades = [];         // full, unfiltered trades from the last run
+let currentTrades = [];      // whatever's currently rendered in the trades table (post-filter)
 let currentMonthlyRows = []; // whatever's currently rendered in the monthly pivot (post-filter)
+let lastDailyLedger = [];    // full, unfiltered daily ledger from the last run
+let currentLedgerRows = [];  // whatever's currently rendered in the ledger table (post-filter)
 
 const METRIC_ROWS = [
   ["Absolute return %", "absolute_return_pct"],
@@ -195,7 +211,7 @@ form.addEventListener("submit", async (e) => {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
     if (!runResp.ok) throw new Error((await runResp.json()).detail || `HTTP ${runResp.status}`);
-    const { run_id, metrics, benchmark, verdict } = await runResp.json();
+    const { run_id, metrics, benchmark, verdict, daily_ledger } = await runResp.json();
 
     statusEl.textContent = "Loading results…";
     const detailResp = await fetch(`${API_BASE}/runs/${run_id}`);
@@ -212,6 +228,10 @@ form.addEventListener("submit", async (e) => {
     renderTrades(lastTrades);
     renderMonthly(lastTrades);
     renderCharts(detail.equity_curve);
+
+    lastDailyLedger = daily_ledger || [];
+    renderLedger(lastDailyLedger);
+
     statusEl.textContent = `Run ${run_id.slice(0, 8)} complete.`;
   } catch (err) {
     errorEl.textContent = err.message || String(err);
@@ -228,6 +248,8 @@ document.getElementById("filter-apply").addEventListener("click", () => {
   const filtered = lastTrades.filter(t => (!from || t.buy_date >= from) && (!to || t.buy_date <= to));
   renderTrades(filtered);
   renderMonthly(filtered);
+  const ledgerFiltered = lastDailyLedger.filter(r => (!from || r.date >= from) && (!to || r.date <= to));
+  renderLedger(ledgerFiltered);
 });
 
 document.getElementById("filter-reset").addEventListener("click", () => {
@@ -235,6 +257,7 @@ document.getElementById("filter-reset").addEventListener("click", () => {
   document.getElementById("filter-to").value = "";
   renderTrades(lastTrades);
   renderMonthly(lastTrades);
+  renderLedger(lastDailyLedger);
 });
 
 function renderMetrics(m, bh) {
@@ -334,6 +357,47 @@ function renderCharts(equityCurve) {
   });
 }
 
+// ---- Daily Activity Ledger: one row per trading day, hidden behind a toggle
+// since a multi-year run can be 700+ rows -- don't inject them until asked. ----
+
+const LEDGER_COLUMNS = [
+  ["date", "Date"], ["market_price", "Price"], ["anchor_after", "Anchor"], ["new_ath", "New ATH"],
+  ["drawdown_pct", "DD %"], ["action", "Action"], ["buy_legs", "Buy legs"], ["sell_legs", "Sell legs"],
+  ["buy_amount", "Buy ₹"], ["sell_proceeds", "Sell ₹"], ["realized_pnl_day", "Realized PnL"],
+  ["realized_pnl_cum", "Profit banked"], ["open_legs", "Open legs"], ["open_principal", "Open principal"],
+  ["holding_units", "Holding units"], ["holding_value", "Holding value"], ["unrealized_pnl", "Unrealized PnL"],
+  ["cash", "Cash"], ["portfolio_value", "Portfolio value"], ["overall_pnl", "Overall PnL"],
+  ["next_leg_trigger_price", "Next buy trigger"], ["next_leg_amount", "Next buy ₹"],
+];
+
+function ledgerCell(key, val) {
+  if (key === "date" || key === "action") return val ?? "—";
+  if (key === "new_ath") return val ? "Yes" : "No";
+  if (val === null || val === undefined) return "—";
+  return fmt(+val);
+}
+
+function renderLedger(rows) {
+  const panel = document.getElementById("ledger-panel");
+  currentLedgerRows = rows;
+  if (!rows.length) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const table = document.getElementById("ledger-table");
+  table.innerHTML = "<tr>" + LEDGER_COLUMNS.map(([, label]) => `<th>${label}</th>`).join("") + "</tr>" +
+    rows.map(r => "<tr>" + LEDGER_COLUMNS.map(([key]) => {
+      const cls = key === "realized_pnl_day" || key === "unrealized_pnl" || key === "overall_pnl"
+        ? (+r[key] >= 0 ? "pos" : "neg") : "";
+      return `<td class="${cls}">${ledgerCell(key, r[key])}</td>`;
+    }).join("") + "</tr>").join("");
+}
+
+document.getElementById("ledger-toggle").addEventListener("click", () => {
+  const wrap = document.getElementById("ledger-table-wrap");
+  const btn = document.getElementById("ledger-toggle");
+  wrap.hidden = !wrap.hidden;
+  btn.textContent = wrap.hidden ? "Show daily ledger" : "Hide daily ledger";
+});
+
 // ---- Analysis panel: sweep / walk-forward / blend ----
 
 async function runAnalysis(kind) {
@@ -386,7 +450,7 @@ document.getElementById("sweep-btn").addEventListener("click", () => runAnalysis
 document.getElementById("walkforward-btn").addEventListener("click", () => runAnalysis("walkforward"));
 document.getElementById("blend-btn").addEventListener("click", () => runAnalysis("blend"));
 
-// ---- CSV / XLSX export (trades + monthly activity, whatever's currently displayed) ----
+// ---- CSV / XLSX export (trades + monthly activity + daily ledger, whatever's currently displayed) ----
 
 const TRADES_HEADERS = [
   ["buy_date", "Buy"], ["sell_date", "Sell"], ["qty", "Qty"], ["buy_price", "Buy px"],
@@ -394,6 +458,17 @@ const TRADES_HEADERS = [
 ];
 const MONTHLY_HEADERS = [
   ["month", "Month"], ["buys", "Buys"], ["sells", "Sells"], ["avgIdle", "Avg idle days"], ["totalIdle", "Total idle days"],
+];
+const DAILY_LEDGER_HEADERS = [
+  ["date", "Date"], ["market_price", "Market Price"], ["anchor_before", "Anchor Before"],
+  ["anchor_after", "Anchor After"], ["new_ath", "New ATH"], ["drawdown_pct", "Drawdown %"],
+  ["action", "Action"], ["buy_legs", "Buy Legs"], ["sell_legs", "Sell Legs"], ["buy_amount", "Buy Amount"],
+  ["sell_proceeds", "Sell Proceeds"], ["realized_pnl_day", "Realized PnL (Day)"],
+  ["realized_pnl_cum", "Profit Banked"], ["open_legs", "Open Legs"], ["open_principal", "Open Principal"],
+  ["holding_units", "Holding Units"], ["holding_value", "Holding Value"], ["unrealized_pnl", "Unrealized PnL"],
+  ["cash", "Cash"], ["portfolio_value", "Portfolio Value"], ["overall_pnl", "Overall PnL"],
+  ["next_buy_level", "Next Buy Level"], ["next_leg_trigger_price", "Next Leg Trigger Price"],
+  ["next_leg_amount", "Next Leg Amount"],
 ];
 
 function csvCell(v) {
@@ -429,7 +504,8 @@ function exportRows(rows, headers, filenameBase, format) {
 document.querySelectorAll(".dl-btn").forEach(btn => btn.addEventListener("click", () => {
   const { target, format } = btn.dataset;
   if (target === "trades") exportRows(currentTrades, TRADES_HEADERS, "trades", format);
-  else exportRows(currentMonthlyRows, MONTHLY_HEADERS, "monthly-activity", format);
+  else if (target === "monthly") exportRows(currentMonthlyRows, MONTHLY_HEADERS, "monthly-activity", format);
+  else exportRows(currentLedgerRows, DAILY_LEDGER_HEADERS, "daily-ledger", format);
 }));
 </script>
 </body>
