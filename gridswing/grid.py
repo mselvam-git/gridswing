@@ -138,7 +138,10 @@ class Grid:
                     continue
                 fill_price = level_px if self.fills == "intraday" else trigger_price
                 fill_price *= 1 + self.slippage_pct / 100  # pay slightly more on every buy
-                qty = lot_value / fill_price
+                qty = int(lot_value / fill_price)  # NSE trades whole shares/units only, no fractional qty
+                if qty < 1:
+                    continue
+                lot_value = qty * fill_price  # actual spend for a whole-share fill, not the nominal budget
                 lot = Lot(level=k, buy_date=date, buy_price=fill_price, qty=qty, lot_value=lot_value)
                 self.open_lots[k] = lot
                 self.deployed_capital += lot_value
