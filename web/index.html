@@ -94,6 +94,12 @@
     <h3>Trades</h3>
     <table id="trades-table"></table>
   </div>
+
+  <div class="panel" id="monthly-panel" hidden>
+    <h3>Monthly Activity</h3>
+    <table id="monthly-table"></table>
+    <canvas id="monthly-chart"></canvas>
+  </div>
 </main>
 
 <script>
@@ -104,7 +110,7 @@ const form = document.getElementById("run-form");
 const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("error");
 const submitBtn = document.getElementById("submit-btn");
-let equityChart, drawdownChart;
+let equityChart, drawdownChart, monthlyChart;
 
 const METRIC_ROWS = [
   ["Absolute return %", "absolute_return_pct"],
@@ -146,6 +152,7 @@ form.addEventListener("submit", async (e) => {
 
     renderMetrics(metrics, benchmark);
     renderTrades(detail.trades);
+    renderMonthly(detail.trades);
     renderCharts(detail.equity_curve);
     statusEl.textContent = `Run ${run_id.slice(0, 8)} complete.`;
   } catch (err) {
@@ -176,6 +183,55 @@ function renderTrades(trades) {
       `<td>${fmt(+t.buy_price)}</td><td>${fmt(+t.sell_price)}</td>` +
       `<td class="${+t.gross_pnl >= 0 ? 'pos' : 'neg'}">${fmt(+t.gross_pnl)}</td><td>${t.tax_class}</td></tr>`).join("");
   panel.hidden = false;
+}
+
+function renderMonthly(trades) {
+  const panel = document.getElementById("monthly-panel");
+  if (!trades.length) { panel.hidden = true; return; }
+
+  // Group by calendar month of buy_date. Idle days = gap between the previous
+  // trade's sell_date and this trade's buy_date, walked in buy_date order.
+  // Grid trades can overlap, so this is a directional simplification, not an
+  // exact "time since last exit".
+  const sorted = [...trades].sort((a, b) => a.buy_date.localeCompare(b.buy_date));
+  const monthOf = d => d.slice(0, 7);
+  const dayDiff = (from, to) => (new Date(to) - new Date(from)) / 86400000;
+  const months = {}; // "YYYY-MM" -> { buys, sells, idleSum, idleCount }
+  const bucket = m => (months[m] ??= { buys: 0, sells: 0, idleSum: 0, idleCount: 0 });
+
+  let prevSellDate = null;
+  for (const t of sorted) {
+    const b = bucket(monthOf(t.buy_date));
+    b.buys++;
+    if (prevSellDate) {
+      b.idleSum += Math.max(0, dayDiff(prevSellDate, t.buy_date));
+      b.idleCount++;
+    }
+    prevSellDate = t.sell_date;
+  }
+  for (const t of sorted) {
+    if (t.sell_date) bucket(monthOf(t.sell_date)).sells++;
+  }
+
+  const monthKeys = Object.keys(months).sort();
+  const table = document.getElementById("monthly-table");
+  table.innerHTML = "<tr><th>Month</th><th>Buys</th><th>Sells</th><th>Avg idle days</th><th>Total idle days</th></tr>" +
+    monthKeys.map(m => {
+      const r = months[m];
+      const avgIdle = r.idleCount ? r.idleSum / r.idleCount : 0;
+      return `<tr><td>${m}</td><td>${r.buys}</td><td>${r.sells}</td><td>${fmt(avgIdle)}</td><td>${fmt(r.idleSum)}</td></tr>`;
+    }).join("");
+
+  panel.hidden = false;
+  monthlyChart?.destroy();
+  monthlyChart = new Chart(document.getElementById("monthly-chart"), {
+    type: "bar",
+    data: { labels: monthKeys, datasets: [{
+      data: monthKeys.map(m => months[m].idleCount ? months[m].idleSum / months[m].idleCount : 0),
+      backgroundColor: "#4f9dff",
+    }] },
+    options: { plugins: { legend: { display: false } }, scales: { x: { ticks: { maxTicksLimit: 8 } } } },
+  });
 }
 
 function renderCharts(equityCurve) {
